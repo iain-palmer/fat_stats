@@ -1,19 +1,23 @@
 """Module to randomly generate some fatigue test results."""
+import numpy as np
 import pandas as pd
 
 from functools import partial
+from numpy.random import multivariate_normal
 
 from support_functions import initializer, kwargs_run
 
-def default_init_fcn(s_max, s_min, A=1e21, b=-6, m=0.5):
-    return A*((s_max - s_min)*(1 - s_min/s_max)**(m-1))**b
+def default_init_fcn(s_max, s_min, A_init=7, b_init=12, m_init=0.5):
+    return (np.exp(A_init)/(s_max - s_min)*(1 - s_min/s_max)**(m_init-1))**b_init
 
-def default_cp_fcn(s_max, s_min, A=0, b=-6, m=0.5):
-    return A*((s_max - s_min)*(1 - s_min/s_max)**(m-1))**b
+def default_cp_fcn(s_max, s_min, A_cp=8, b_cp=5, m_cp=0.5):
+    return (np.exp(A_cp)/(s_max - s_min)*(1 - s_min/s_max)**(m_cp-1))**b_cp
 
 def generate_pars(fixed_pars, stochastic_pars):
-    pars = {}
-    return pars
+    if stochastic_pars is not {}:
+        samples = multivariate_normal(stochastic_pars["mean"], stochastic_pars["cov"])
+        stoch = {i: j for i, j in zip(stochastic_pars["names"], samples)}
+    return {**fixed_pars, **stoch}
 
 class FatigueTestGenerator:
     @initializer
@@ -60,7 +64,15 @@ class Specimen:
 
 if __name__ == "__main__":
     spec_inputs = pd.DataFrame(columns=["s_max", "s_min", "mat_source", "Kt", "max_cycles", "eval_strain", "eval_pd", "eval_init_type"])
-    for i in [500, 600, 700, 800, 900, 1000]:
+    s_max = [300]*15 + [400]*15 + [500]*15 + [600]*15 + [700]*15 + [800]*15 + [900]*15 + [1000]*15
+    stochastic_pars = {"names": ["A_init", "b_init", "A_cp"], "mean": [7, 12, 8.2], "cov": np.array([[0.01, 0, 0], [0, 9, 0], [0, 0, 0.003]])}
+    for i in s_max:
         spec_inputs = spec_inputs.append({"s_max": i,"s_min": 0,"max_cycles": 100000},ignore_index=True)
-    test_gen = FatigueTestGenerator(spec_inputs, [default_init_fcn, partial(default_init_fcn, A=2e32, b=-10)])
-    print([i for i in test_gen])
+    test_gen = FatigueTestGenerator(spec_inputs, [default_init_fcn], stochastic_pars=stochastic_pars)#, partial(default_init_fcn, A=1e21, b=-6)])
+    lives = [i for i in test_gen]
+    print(lives)
+
+    import matplotlib.pyplot as plt
+    plt.plot([i for i in test_gen], s_max, ".")
+    plt.xscale("log")
+    plt.show()
