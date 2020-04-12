@@ -4,14 +4,25 @@ import pandas as pd
 
 from functools import partial
 from numpy.random import multivariate_normal
+from scipy.stats import norm
 
 from support_functions import initializer, kwargs_run
 
-def default_init_fcn(s_max, s_min, A_init=7, b_init=12, m_init=0.5):
-    return (np.exp(A_init)/(s_max - s_min)*(1 - s_min/s_max)**(m_init-1))**b_init
+def default_init_fcn(s_max, s_min, A_init=7.2, b_init=12, m_init=0.5):
+    return (np.exp(A_init)/((s_max - s_min)*(1 - s_min/s_max)**(m_init-1)))**b_init
 
-def default_cp_fcn(s_max, s_min, A_cp=8, b_cp=5, m_cp=0.5):
-    return (np.exp(A_cp)/(s_max - s_min)*(1 - s_min/s_max)**(m_cp-1))**b_cp
+def default_init_fcn_defect(s_max, s_min, z_defect=0.0, A_defect=7.4, b_defect=12, m_defect=0.5, p_thresh=0.5):
+    z_thresh = norm.ppf(p_thresh)
+    if z_defect <= z_thresh:
+        return (np.exp(A_defect)/((s_max - s_min)*(1 - s_min/s_max)**(m_defect-1)))**b_defect
+    else:
+        return np.inf
+
+def default_cp_fcn(s_max, s_min, A_cp=8, b_cp=5, m_cp_pos=0.5, m_cp_neg=0.2):
+    if s_min > 0:
+        return (np.exp(A_cp)/((s_max - s_min)*(1 - s_min/s_max)**(m_cp_pos-1)))**b_cp
+    else:
+        return (np.exp(A_cp)/((s_max - s_min)*(1 - s_min/s_max)**(m_cp_neg-1)))**b_cp
 
 def generate_pars(fixed_pars, stochastic_pars):
     if stochastic_pars is not {}:
@@ -63,16 +74,38 @@ class Specimen:
         return self.total_life
 
 if __name__ == "__main__":
-    spec_inputs = pd.DataFrame(columns=["s_max", "s_min", "mat_source", "Kt", "max_cycles", "eval_strain", "eval_pd", "eval_init_type"])
-    s_max = [300]*15 + [400]*15 + [500]*15 + [600]*15 + [700]*15 + [800]*15 + [900]*15 + [1000]*15
-    stochastic_pars = {"names": ["A_init", "b_init", "A_cp"], "mean": [7, 12, 8.2], "cov": np.array([[0.01, 0, 0], [0, 9, 0], [0, 0, 0.003]])}
-    for i in s_max:
-        spec_inputs = spec_inputs.append({"s_max": i,"s_min": 0,"max_cycles": 100000},ignore_index=True)
-    test_gen = FatigueTestGenerator(spec_inputs, [default_init_fcn], stochastic_pars=stochastic_pars)#, partial(default_init_fcn, A=1e21, b=-6)])
-    lives = [i for i in test_gen]
-    print(lives)
-
+    spec_inputs_r0 = pd.DataFrame(columns=["s_max", "s_min", "mat_source", "Kt", "max_cycles", "eval_strain", "eval_pd", "eval_init_type"])
+    spec_inputs_rneg1 = pd.DataFrame(columns=["s_max", "s_min", "mat_source", "Kt", "max_cycles", "eval_strain", "eval_pd", "eval_init_type"])
+    s_max = [400]*6 + [500]*6 + [600]*6 + [700]*6 + [800]*6 + [900]*6 + [1000]*6 + [1100]*6 + [1200]*6
+    s_max_rneg1 = [i/2 for i in s_max]
+    s_min_rneg1 = [-1*i for i in s_max_rneg1]
+    names = ["A_init", "b_init", "A_cp", "z_defect", "A_defect", "b_defect"]
+    mean = [7.2, 20, 8.2, 0, 7.5, 12]
+    rho_init = -2
+    sigma_A_init = 0.025
+    sigma_b_init = 0.25
+    sigma_A_cp = 0.055
+    rho_defect = -3
+    sigma_A_defect = 0.025
+    sigma_b_defect = 0.15
+    cov = np.array([
+        [sigma_A_init**2, rho_init*sigma_A_init*sigma_b_init, 0, 0, 0, 0],
+        [rho_init*sigma_A_init*sigma_b_init, sigma_b_init**2, 0, 0, 0, 0],
+        [0, 0, sigma_A_cp**2, 0, 0, 0], 
+        [0, 0, 0, 1, 0, 0], 
+        [0, 0, 0, 0, sigma_A_defect**2, rho_defect*sigma_A_defect*sigma_b_defect],
+        [0, 0, 0, 0, rho_defect*sigma_A_defect*sigma_b_defect,  sigma_b_defect**2]
+    ])
+    stochastic_pars = {"names": names, "mean": mean, "cov": cov}
+    for i, j, k in zip(s_max, s_max_rneg1, s_min_rneg1):
+        spec_inputs_r0 = spec_inputs_r0.append({"s_max": i,"s_min": 0, "max_cycles": 100000}, ignore_index=True)
+        spec_inputs_rneg1 = spec_inputs_rneg1.append({"s_max": j,"s_min": k, "max_cycles": 100000}, ignore_index=True)
+    test_gen_r0 = FatigueTestGenerator(spec_inputs_r0, [default_init_fcn, default_init_fcn_defect], stochastic_pars=stochastic_pars)
+    test_gen_rneg1 = FatigueTestGenerator(spec_inputs_rneg1, [default_init_fcn, default_init_fcn_defect], stochastic_pars=stochastic_pars)
+    np.random.seed(1)
+    
     import matplotlib.pyplot as plt
-    plt.plot([i for i in test_gen], s_max, ".")
+    plt.plot([i for i in test_gen_r0], s_max, "x")
+    plt.plot([i for i in test_gen_rneg1], s_max_rneg1, "r.")
     plt.xscale("log")
     plt.show()
