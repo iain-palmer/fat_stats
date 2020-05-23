@@ -76,9 +76,9 @@ class Specimen:
 if __name__ == "__main__":
     spec_inputs_r0 = pd.DataFrame(columns=["s_max", "s_min", "mat_source", "Kt", "max_cycles", "eval_strain", "eval_pd", "eval_init_type"])
     spec_inputs_rneg1 = pd.DataFrame(columns=["s_max", "s_min", "mat_source", "Kt", "max_cycles", "eval_strain", "eval_pd", "eval_init_type"])
-    s_max = [400]*6 + [500]*6 + [600]*6 + [700]*6 + [800]*6 + [900]*6 + [1000]*6 + [1100]*6 + [1200]*6
-    s_max_rneg1 = [i/2 for i in s_max]
-    s_min_rneg1 = [-1*i for i in s_max_rneg1]
+    s_max = np.array([400]*6 + [500]*6 + [600]*6 + [700]*6 + [800]*6 + [900]*6 + [1000]*6 + [1100]*6 + [1200]*6)
+    s_max_rneg1 = np.array([i/2 for i in s_max])
+    s_min_rneg1 = np.array([-1*i for i in s_max_rneg1])
     names = ["A_init", "b_init", "A_cp", "z_defect", "A_defect", "b_defect"]
     mean = [7.2, 20, 8.2, 0, 7.5, 12]
     rho_init = -2
@@ -105,7 +105,47 @@ if __name__ == "__main__":
     np.random.seed(1)
     
     import matplotlib.pyplot as plt
-    plt.plot([i for i in test_gen_r0], s_max, "x")
-    plt.plot([i for i in test_gen_rneg1], s_max_rneg1, "r.")
+    import seaborn as sns
+    fig, ax = plt.subplots()
+    r0_results = np.array([i for i in test_gen_r0])
+    rneg1_results = np.array([i for i in test_gen_rneg1])
+    sns.scatterplot(x=r0_results, y=s_max, label='R=0 data', ax=ax)
+    sns.scatterplot(x=rneg1_results, y=s_max_rneg1, label='R=-1 data', ax=ax)
     plt.xscale("log")
+    #plt.show()
+
+    from sklearn.gaussian_process import GaussianProcessRegressor
+    from sklearn.gaussian_process.kernels import ConstantKernel, RBF, WhiteKernel
+
+    # Define kernel parameters. 
+    length_scale = 1000
+    noise_level = 1e-5
+
+    # Define kernel object. 
+    kernel = 0.5*RBF(length_scale=length_scale)+WhiteKernel(noise_level=noise_level)
+    gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10)
+    X = s_max.reshape(54, 1)
+    x_star = np.linspace(start=400, stop=1200, num=80)
+    X_star = x_star.reshape(80, 1)
+
+    gp.fit(X, np.log(r0_results))
+    print(gp.log_marginal_likelihood())
+    y_mean, y_std = gp.predict(X_star, return_std=True)
+    y_mean = np.exp(y_mean)
+    
+    y_true_normal = np.array([default_init_fcn(i, 0, A_init=7.2, b_init=20) + default_cp_fcn(i, 0, A_cp=8.2) for i in x_star])
+    y_true_defect = np.array([default_init_fcn_defect(i, 0, A_defect=7.5, b_defect=12) + default_cp_fcn(i, 0, A_cp=8.2) for i in x_star])
+    fig, ax = plt.subplots()
+    # Plot true
+    sns.lineplot(x=x_star, y=y_true_normal, color='red', label='true_normal', ax=ax)
+    sns.lineplot(x=x_star, y=y_true_defect, color='purple', label='true_defect', ax=ax)
+    # Plot results.
+    sns.scatterplot(x=s_max, y=r0_results, label='R=0 data', ax=ax)
+    # Plot prediction. 
+    sns.lineplot(x=x_star, y=y_mean, color='green', label='pred', ax=ax)
+    plt.fill_between(x_star, y_mean*y_std, y_mean/y_std, color='darkorange',
+                 alpha=0.2)
+    ax.set(title=f'Prediction GaussianProcessRegressor, length_scale = {length_scale}')
+    ax.legend(loc='upper right')
+    plt.yscale("log")
     plt.show()
