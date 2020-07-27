@@ -31,6 +31,7 @@ def generate_pars(fixed_pars, stochastic_pars):
     return {**fixed_pars, **stoch}
 
 class FatigueTestGenerator:
+    """This class is used to randomly generate fatigue test results."""
     @initializer
     def __init__(self, spec_inputs,
         init_fcns=[default_init_fcn], cp_fcn=default_cp_fcn,
